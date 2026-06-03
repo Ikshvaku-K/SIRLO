@@ -1,0 +1,47 @@
+[
+  {
+    "total_fleet_reward": 92.0,
+    "fire_captures": 5,
+    "cloud_penalties": 15,
+    "downlinks": 5,
+    "battery_depletions": 0,
+    "avg_storage_fill": 0.5489689586429681,
+    "action_counts": [
+      130,
+      91,
+      20,
+      25,
+      22
+    ]
+  },
+  {
+    "total_fleet_reward": 117.0,
+    "fire_captures": 9,
+    "cloud_penalties": 17,
+    "downlinks": 3,
+    "battery_depletions": 0,
+    "avg_storage_fill": 0.6288234826099781,
+    "action_counts": [
+      127,
+      99,
+      23,
+      18,
+      21
+    ]
+  },
+  {
+    "total_fleet_reward": 133.0,
+    "fire_captures": 11,
+    "cloud_penalties": 17,
+    "downlinks": 4,
+    "battery_depletions": 0,
+    "avg_storage_fill": 0.48024783932904924,
+    "action_counts": [
+      115,
+      86,
+      24,
+      24,
+      39
+    ]
+  }
+]

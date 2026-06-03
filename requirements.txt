@@ -1,0 +1,8 @@
+torch
+typeguard==2.13.3
+earthengine-api
+skyfield
+numpy
+tqdm
+matplotlib
+gymnasium

@@ -1,0 +1,196 @@
+# ============================================================
+# SIRLO Dataset Generation Configuration
+# Dataset for: Autonomous MARL High-Cadence Environmental Monitoring
+# ============================================================
+
+# --- Temporal Sampling ---
+temporal:
+  start_date: "2023-06-01"         # Dataset start (UTC)
+  end_date: "2024-05-31"           # Dataset end (UTC)
+  cadence_minutes: 30              # Sample interval — matches GOES-16 scan cadence
+  max_samples: 10000               # Hard cap on total timesteps
+
+# --- Spatial Configuration ---
+spatial:
+  # Named regions of interest (ROI) — each becomes a separate dataset split
+  regions:
+    amazon_wildfire:
+      description: "Amazon Basin — primary wildfire monitoring zone"
+      bbox: [-70.0, -15.0, -44.0, 5.0]   # [lon_min, lat_min, lon_max, lat_max]
+      resolution_m: 2000                  # Output pixel resolution in metres
+      grid_size: [64, 64]                 # H x W of output tensor (pixels)
+
+    cerrado:
+      description: "Brazilian Cerrado — high deforestation pressure"
+      bbox: [-60.0, -24.0, -44.0, -5.0]
+      resolution_m: 2000
+      grid_size: [64, 64]
+
+    pantanal:
+      description: "Pantanal — seasonally flooded savanna"
+      bbox: [-58.0, -22.0, -50.0, -14.0]
+      resolution_m: 2000
+      grid_size: [64, 64]
+
+  # Sub-patch sampling (for orbit-local observations)
+  patch:
+    enabled: true
+    patch_size_km: 100             # Sensor footprint width (~100 km for typical LEO sat)
+    overlap_fraction: 0.15         # Overlap between adjacent patches
+
+# --- GEE Data Sources (channels of the world-state tensor) ---
+data_sources:
+
+  # Channel 0 — Cloud optical depth / obstruction
+  goes16_cloud:
+    enabled: true
+    collection: "NOAA/GOES/16/MCMIPF"
+    band: "CMI_C13"                # Clean IR window — cloud detection day & night
+    temporal_window_min: 20        # ± window around sample timestamp
+    normalise:
+      method: "minmax"
+      clip_min: 200.0              # Kelvin (deep convective cloud tops)
+      clip_max: 310.0              # Kelvin (warm clear sky)
+    derived:
+      cloud_mask: true             # Boolean obstruction flag (T < 273 K)
+
+  # Channel 1 — Fire radiative power / thermal anomaly
+  firms:
+    enabled: true
+    collection: "FIRMS"
+    band: "T21"                    # MODIS/VIIRS brightness temperature
+    temporal_window_min: 720       # ±12 h window (FIRMS ~daily latency)
+    normalise:
+      method: "minmax"
+      clip_min: 300.0
+      clip_max: 500.0
+    derived:
+      fire_mask: true              # Boolean high-priority target flag
+
+  # Channel 2 — Vegetation health (proxy for fire risk)
+  modis_ndvi:
+    enabled: true
+    collection: "MODIS/061/MOD13A2"
+    band: "NDVI"
+    temporal_window_days: 16       # MODIS NDVI 16-day composite
+    normalise:
+      method: "minmax"
+      clip_min: -2000
+      clip_max: 10000
+    scale_factor: 0.0001
+
+  # Channel 3 — Land surface temperature (fire precursor)
+  modis_lst:
+    enabled: true
+    collection: "MODIS/061/MOD11A1"
+    band: "LST_Day_1km"
+    temporal_window_days: 1
+    normalise:
+      method: "minmax"
+      clip_min: 13000             # Raw DN units (multiply by 0.02 → K)
+      clip_max: 17000
+    scale_factor: 0.02
+
+  # Channel 4 — Soil moisture (fire weather index proxy)
+  smap_soil_moisture:
+    enabled: true
+    collection: "NASA_USDA/HSL/SMAP10KM_soil_moisture"
+    band: "ssm"                   # Surface soil moisture (mm)
+    temporal_window_days: 3
+    normalise:
+      method: "minmax"
+      clip_min: 0.0
+      clip_max: 60.0
+
+  # Channel 5 — Precipitation (cloud / obscuration predictor)
+  gpm_precipitation:
+    enabled: true
+    collection: "NASA/GPM_L3/IMERG_V06"
+    band: "precipitationCal"       # mm/hr
+    temporal_window_min: 60
+    normalise:
+      method: "minmax"
+      clip_min: 0.0
+      clip_max: 50.0
+
+  # Channel 6 — SAR coherence (cloud-penetrating, structural change)
+  sentinel1_sar:
+    enabled: false                 # Disable by default — slow to fetch
+    collection: "COPERNICUS/S1_GRD"
+    band: "VV"                     # Vertical-vertical polarisation (dB)
+    temporal_window_days: 12
+    normalise:
+      method: "percentile"
+      p_low: 2
+      p_high: 98
+
+# --- Satellite Constellation State (non-image features) ---
+satellite_state:
+  n_satellites: 6                  # Number of agents in the constellation
+  orbital_planes: 2                # Number of orbital planes
+  features_per_satellite:
+    - name: "battery_soc"          # State of charge [0, 1]
+      range: [0.0, 1.0]
+    - name: "storage_fill"         # Data buffer fill fraction [0, 1]
+      range: [0.0, 1.0]
+    - name: "lat"                  # Sub-satellite latitude in ROI frame [0,1]
+      range: [0.0, 1.0]
+    - name: "lon"                  # Sub-satellite longitude in ROI frame [0,1]
+      range: [0.0, 1.0]
+    - name: "altitude_km"          # Orbital altitude
+      range: [450.0, 600.0]
+    - name: "footprint_overlap"    # Fraction of footprint covered by cloud
+      range: [0.0, 1.0]
+    - name: "gs_contact_flag"      # Binary: 1 = ground station in view
+      range: [0, 1]
+    - name: "time_to_next_contact" # Minutes until next GS pass [0, 120]
+      range: [0.0, 120.0]
+
+# --- Action Space ---
+actions:
+  discrete: true
+  n_actions: 5
+  action_map:
+    0: "IDLE"              # Do nothing, conserve energy
+    1: "IMAGE_TARGET"      # Image current footprint centroid
+    2: "STEER_NORTH"       # Adjust pointing 5° north
+    3: "STEER_SOUTH"       # Adjust pointing 5° south
+    4: "DOWNLINK"          # Transmit buffered data to ground
+
+# --- Reward Shaping (reproduced here for dataset labelling) ---
+reward:
+  fire_capture_bonus: 10.0           # Clear image over active fire pixel
+  clear_image_bonus: 1.0             # Any cloud-free successful image
+  cloud_waste_penalty: -2.0          # Image attempt over cloud-obscured cell
+  battery_depleted_penalty: -5.0     # Agent battery reach 0%
+  buffer_overflow_penalty: -3.0      # Storage overflow (data lost)
+  downlink_success_bonus: 2.0        # Successful data transfer
+
+# --- Output / Persistence ---
+output:
+  base_dir: "data/gee_dataset"
+  episode_dir: "episodes"
+  metadata_file: "metadata.json"
+  format: "npz"                  # numpy compressed archive per episode
+  compress: true
+
+  # HDF5 is better for large datasets — enable if h5py is installed
+  hdf5:
+    enabled: true
+    filename: "sirlo_dataset.h5"
+    chunk_size: 256               # Chunk along time axis
+
+  # CSV of scalar/tabular features for quick inspection
+  csv_export:
+    enabled: true
+    filename: "scalar_features.csv"
+
+# --- Dataset Splits ---
+splits:
+  train: 0.70
+  validation: 0.15
+  test: 0.15
+  stratify_by: "region"           # Keep region proportions across splits
+
+# --- Reproducibility ---
+seed: 42
